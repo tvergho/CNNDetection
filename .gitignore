@@ -1,0 +1,9 @@
+imagenet1k/
+stable-imagenet1k.zip
+wandb/
+__pycache__/
+*/__pycache__
+checkpoints/
+*.out
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/

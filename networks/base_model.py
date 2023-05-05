@@ -39,9 +39,15 @@ class BaseModel(nn.Module):
         state_dict = torch.load(load_path, map_location=self.device)
         if hasattr(state_dict, '_metadata'):
             del state_dict._metadata
-
-        self.model.load_state_dict(state_dict['model'])
-        self.total_steps = state_dict['total_steps']
+        
+        # Remove the 'module' prefix
+        new_state_dict = {}
+        for key, value in state_dict['model'].items():
+            new_key = key.replace('module.', '')  # Remove 'module.' from the key
+            new_state_dict[new_key] = value 
+            
+        self.model.load_state_dict(new_state_dict)
+        # self.total_steps = state_dict['total_steps']
 
         if self.isTrain and not self.opt.new_optim:
             self.optimizer.load_state_dict(state_dict['optimizer'])

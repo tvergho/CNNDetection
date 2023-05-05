@@ -3,7 +3,9 @@ import torch
 import torch.nn as nn
 from networks.resnet import resnet50
 from networks.base_model import BaseModel, init_weights
+from accelerate import Accelerator
 
+accelerator = Accelerator()
 
 class Trainer(BaseModel):
     def name(self):
@@ -19,7 +21,8 @@ class Trainer(BaseModel):
 
         if not self.isTrain or opt.continue_train:
             self.model = resnet50(num_classes=1)
-
+            # self.model = nn.DataParallel(self.model)
+            
         if self.isTrain:
             self.loss_fn = nn.BCEWithLogitsLoss()
             # initialize optimizers
@@ -34,7 +37,10 @@ class Trainer(BaseModel):
 
         if not self.isTrain or opt.continue_train:
             self.load_networks(opt.epoch)
-        self.model.to(opt.gpu_ids[0])
+        # self.model.to(opt.gpu_ids[0])
+        self.model, self.optimizer = accelerator.prepare(
+            self.model, self.optimizer
+        )
 
 
     def adjust_learning_rate(self, min_lr=1e-6):
@@ -45,8 +51,14 @@ class Trainer(BaseModel):
         return True
 
     def set_input(self, input):
-        self.input = input[0].to(self.device)
-        self.label = input[1].to(self.device).float()
+        # self.input = input[0].to(self.device)
+        # self.label = input[1].to(self.device).float()
+#         self.input = input[0]
+#         self.label = input[1].float()
+        self.input = accelerator.gather(input[0])
+        
+        # self.input = input[0]
+        self.label = accelerator.gather(input[1]).float()
 
 
     def forward(self):
@@ -56,9 +68,12 @@ class Trainer(BaseModel):
         return self.loss_fn(self.output.squeeze(1), self.label)
 
     def optimize_parameters(self):
+        # print("optimize")
         self.forward()
         self.loss = self.loss_fn(self.output.squeeze(1), self.label)
         self.optimizer.zero_grad()
-        self.loss.backward()
+        # print("before backward")
+        accelerator.backward(self.loss)
+        # print("before step")
         self.optimizer.step()
 
