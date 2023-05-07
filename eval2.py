@@ -2,7 +2,6 @@ import os
 import csv
 import torch
 
-from validate import validate
 from networks.resnet import resnet50
 from options.test_options import TestOptions
 from eval_config import *
@@ -34,11 +33,11 @@ for v_id, val in enumerate(vals):
     model.cuda()
     model.eval()
 
-    acc, ap, _, _, _, _ = validate(model, opt)
-    rows.append([val, acc, ap])
-    print("({}) acc: {}; ap: {}".format(val, acc, ap))
+#     acc, ap, _, _, _, _ = validate(model, opt)
+#     rows.append([val, acc, ap])
+#     print("({}) acc: {}; ap: {}".format(val, acc, ap))
 
-csv_name = results_dir + '/{}.csv'.format(model_name)
-with open(csv_name, 'w') as f:
-    csv_writer = csv.writer(f, delimiter=',')
-    csv_writer.writerows(rows)
+# csv_name = results_dir + '/{}.csv'.format(model_name)
+# with open(csv_name, 'w') as f:
+#     csv_writer = csv.writer(f, delimiter=',')
+#     csv_writer.writerows(rows)
