@@ -3,7 +3,7 @@ import numpy as np
 from torch.utils.data.sampler import WeightedRandomSampler
 
 from .datasets import dataset_folder
-
+from .custom_datasets import *
 
 def get_dataset(opt):
     dset_lst = []
