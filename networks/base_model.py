@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch.nn import init
 from torch.optim import lr_scheduler
+from util import mkdir
 
 
 class BaseModel(nn.Module):
@@ -17,6 +18,7 @@ class BaseModel(nn.Module):
 
     def save_networks(self, epoch):
         save_filename = 'model_epoch_%s.pth' % epoch
+        mkdir(self.save_dir)
         save_path = os.path.join(self.save_dir, save_filename)
 
         # serialize model and optimizer to dict
