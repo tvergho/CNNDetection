@@ -16,7 +16,17 @@ class Trainer(BaseModel):
 
         if self.isTrain and not opt.continue_train:
             self.model = resnet50(pretrained=True)
+             # freeze all layers
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+            # replace the last layer
             self.model.fc = nn.Linear(2048, 1)
+
+            # unfreeze the last layer
+            for param in self.model.fc.parameters():
+                param.requires_grad = True
+
             torch.nn.init.normal_(self.model.fc.weight.data, 0.0, opt.init_gain)
 
         if not self.isTrain or opt.continue_train:
