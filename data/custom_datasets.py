@@ -22,6 +22,7 @@ class CombinedLimitedDataset(Dataset):
         self.iter1 = iter(self.dataset_1)
         self.iter2 = iter(self.dataset_2)
         self.max_size = max_size
+        self.dataset_1_is_local = dataset_1_is_local
 
     def __len__(self):
         return self.max_size
