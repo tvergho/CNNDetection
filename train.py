@@ -2,88 +2,134 @@ import os
 import sys
 import time
 import torch
-import torch.nn
-import argparse
+import torchvision.transforms as transforms
+from torchvision.datasets import ImageFolder
+from torch.utils.data import Dataset, ConcatDataset, Subset, DataLoader, IterableDataset, random_split
 from PIL import Image
 from tensorboardX import SummaryWriter
+import random
+from datasets import load_dataset
+from options.train_options import TrainOptions
+from tqdm import tqdm
+import itertools
+import wandb
+import gc
+import psutil
 
-from validate import validate
-from data import create_dataloader
+import cv2
+import numpy as np
+import torchvision.datasets as datasets
+import torchvision.transforms.functional as TF
+from random import random, choice
+from io import BytesIO
+from PIL import ImageFile
+from scipy.ndimage.filters import gaussian_filter
+from huggingface_hub import login
+
+from sklearn.metrics import average_precision_score, precision_recall_curve, accuracy_score
+from data import create_dataloader, data_augment, custom_resize, LocalDataset, LimitedDataset, CombinedLimitedDataset
 from earlystop import EarlyStopping
 from networks.trainer import Trainer
-from options.train_options import TrainOptions
+from accelerate import Accelerator
+from validate import validate
 
+from util import flush, print_memory_usage
 
-"""Currently assumes jpg_prob, blur_prob 0 or 1"""
-def get_val_opt():
-    val_opt = TrainOptions().parse(print_options=False)
-    val_opt.dataroot = '{}/{}/'.format(val_opt.dataroot, val_opt.val_split)
-    val_opt.isTrain = False
-    val_opt.no_resize = False
-    val_opt.no_crop = False
-    val_opt.serial_batches = True
-    val_opt.jpg_method = ['pil']
-    if len(val_opt.blur_sig) == 2:
-        b_sig = val_opt.blur_sig
-        val_opt.blur_sig = [(b_sig[0] + b_sig[1]) / 2]
-    if len(val_opt.jpg_qual) != 1:
-        j_qual = val_opt.jpg_qual
-        val_opt.jpg_qual = [int((j_qual[0] + j_qual[-1]) / 2)]
-
-    return val_opt
-
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+accelerator = Accelerator(log_with="wandb")
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()
-    opt.dataroot = '{}/{}/'.format(opt.dataroot, opt.train_split)
-    val_opt = get_val_opt()
+    opt.name = "diffusion_blur_jpg_prob0.5"
+    opt.blur_prob = 0.5 
+    opt.blur_sig = [0.0, 3.0] 
+    opt.jpg_prob = 0.5 
+    opt.jpg_method = ['cv2','pil']
+    opt.jpg_qual = [30,100]
+    
+    if accelerator.is_main_process:
+        accelerator.init_trackers("cnndetector", config=vars(opt))
+    
+    # Load local dataset
+    local_data_path = opt.dataroot
+    crop_func = transforms.RandomCrop(opt.cropSize)
+    flip_func = transforms.RandomHorizontalFlip()
+    rz_func = transforms.Lambda(lambda img: custom_resize(img, opt))
 
-    data_loader = create_dataloader(opt)
-    dataset_size = len(data_loader)
-    print('#training images = %d' % dataset_size)
+    transform = transforms.Compose([
+                    rz_func,
+                    transforms.Lambda(lambda img: data_augment(img, opt)),
+                    crop_func,
+                    flip_func,
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ])
+    local_dataset = LocalDataset(local_data_path)
+    
+    train_split_ratio = 0.995
+    train_size = int(train_split_ratio * len(local_dataset))
+    val_size = len(local_dataset) - train_size
+    local_train_dataset, local_val_dataset = random_split(local_dataset, [train_size, val_size])
 
-    train_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "train"))
-    val_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "val"))
+    # Load Huggingface dataset
+    huggingface_dataset_name = 'imagenet-1k'
+    huggingface_dataset = load_dataset(huggingface_dataset_name, split='test', use_auth_token=True, streaming=True)
+    
+    # Create DataLoader
+    batch_size = opt.batch_size
+    
+    val_dataset = load_dataset(huggingface_dataset_name, split='validation', use_auth_token=True, streaming=True)
+    limited_dataset = CombinedLimitedDataset(local_val_dataset, val_dataset, max_size=1000, transform=transform, dataset_1_is_local=True)
+    data_loader_val = DataLoader(limited_dataset, batch_size=batch_size, num_workers=0, pin_memory=True)
+    
+    combined_dataset = CombinedLimitedDataset(local_dataset, huggingface_dataset, max_size=200000, transform=transform, dataset_1_is_local=True)
+    data_loader = DataLoader(combined_dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True)
 
     model = Trainer(opt)
     early_stopping = EarlyStopping(patience=opt.earlystop_epoch, delta=-0.001, verbose=True)
+    
+    data_loader, data_loader_val = accelerator.prepare(
+        data_loader, data_loader_val
+    )
+
     for epoch in range(opt.niter):
         epoch_start_time = time.time()
         iter_data_time = time.time()
         epoch_iter = 0
 
-        for i, data in enumerate(data_loader):
-            model.total_steps += 1
-            epoch_iter += opt.batch_size
+        with tqdm(data_loader) as t:
+            for (combined_data, combined_labels) in t:
+                model.total_steps += 1
+                epoch_iter += opt.batch_size
 
-            model.set_input(data)
-            model.optimize_parameters()
+                model.set_input((combined_data, combined_labels))
+                model.optimize_parameters()
 
-            if model.total_steps % opt.loss_freq == 0:
-                print("Train loss: {} at step: {}".format(model.loss, model.total_steps))
-                train_writer.add_scalar('loss', model.loss, model.total_steps)
+                if model.total_steps % opt.loss_freq == 0:
+                    print("Train loss: {} at step: {}".format(model.loss, model.total_steps))
+                    accelerator.log({"loss": model.loss})
 
-            if model.total_steps % opt.save_latest_freq == 0:
-                print('saving the latest model %s (epoch %d, model.total_steps %d)' %
-                      (opt.name, epoch, model.total_steps))
-                model.save_networks('latest')
+                if model.total_steps % opt.save_latest_freq == 0:
+                    print('saving the latest model %s (epoch %d, model.total_steps %d)' %
+                          (opt.name, epoch, model.total_steps))
+                    model.save_networks('latest')
 
-            # print("Iter time: %d sec" % (time.time()-iter_data_time))
-            # iter_data_time = time.time()
+                if (model.total_steps % opt.validation_frequency == 0):
+                    model.eval()
+                    acc, ap, r_acc, f_acc = validate(model.model, opt, data_loader_val)[:4]
+                    accelerator.log({"accuracy": acc, "ap": ap, "r_acc": r_acc, "f_acc": f_acc})
+                    if accelerator.is_main_process:
+                        print("(Val @ step {}) acc: {}; ap: {}; r_acc: {}; f_acc: {}".format(model.total_steps, acc, ap, r_acc, f_acc))
+                    model.train()
+                
+                flush()
 
         if epoch % opt.save_epoch_freq == 0:
             print('saving the model at the end of epoch %d, iters %d' %
                   (epoch, model.total_steps))
             model.save_networks('latest')
             model.save_networks(epoch)
-
-        # Validation
-        model.eval()
-        acc, ap = validate(model.model, val_opt)[:2]
-        val_writer.add_scalar('accuracy', acc, model.total_steps)
-        val_writer.add_scalar('ap', ap, model.total_steps)
-        print("(Val @ epoch {}) acc: {}; ap: {}".format(epoch, acc, ap))
-
+            
         early_stopping(acc, model)
         if early_stopping.early_stop:
             cont_train = model.adjust_learning_rate()
@@ -94,4 +140,3 @@ if __name__ == '__main__':
                 print("Early stopping.")
                 break
         model.train()
-
