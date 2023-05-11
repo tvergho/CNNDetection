@@ -27,119 +27,16 @@ from scipy.ndimage.filters import gaussian_filter
 from huggingface_hub import login
 
 from sklearn.metrics import average_precision_score, precision_recall_curve, accuracy_score
-from data import create_dataloader, data_augment, custom_resize
+from data import create_dataloader, data_augment, custom_resize, LocalDataset, LimitedDataset, CombinedLimitedDataset
 from earlystop import EarlyStopping
 from networks.trainer import Trainer
 from accelerate import Accelerator
+from validate import validate
+
+from util import flush, print_memory_usage
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 accelerator = Accelerator(log_with="wandb")
-
-class LocalDataset(Dataset):
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
-        self.image_paths = self._get_image_paths()
-
-    def _get_image_paths(self):
-        image_paths = []
-        for root, dirs, files in os.walk(self.root_dir):
-            for file in files:
-                if file.lower().endswith(('.jpg', '.jpeg', '.png')):
-                    image_paths.append(os.path.join(root, file))
-        return image_paths
-
-    def __len__(self):
-        return len(self.image_paths)
-
-    def __getitem__(self, idx):
-        img_path = self.image_paths[idx]
-        img = Image.open(img_path).convert('RGB')
-
-        return img, 0  # "fake" class label
-    
-def validate(model, opt, data_loader):
-    with torch.no_grad():
-        y_true, y_pred = [], []
-        with tqdm(data_loader) as t:
-            for img, label in t:
-                in_tens = img.cuda()
-                y_pred.extend(model(in_tens).sigmoid().flatten().tolist())
-                y_true.extend(label.flatten().tolist())
-
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    r_acc = accuracy_score(y_true[y_true==0], y_pred[y_true==0] > 0.5)
-    f_acc = accuracy_score(y_true[y_true==1], y_pred[y_true==1] > 0.5)
-    acc = accuracy_score(y_true, y_pred > 0.5)
-    ap = average_precision_score(y_true, y_pred)
-    return acc, ap, r_acc, f_acc, y_true, y_pred
-
-            
-def numpy_to_pil_image(img):
-    img = np.asarray(img)        
-    if len(img.shape) == 2:
-        img = np.repeat(img[:, :, np.newaxis], 3, axis=2)
-        
-    # img = (img * 255).astype(np.uint8)
-    return Image.fromarray(img)
-
-
-class CombinedDataset(Dataset):
-    def __init__(self, local_dataset, huggingface_dataset, transform=None):
-        self.local_dataset = local_dataset
-        self.huggingface_dataset = huggingface_dataset
-        self.transform = transform
-        self.huggingface_iter = iter(self.huggingface_dataset)
-
-    def __len__(self):
-        return 200000
-
-    def __getitem__(self, idx):
-        if idx < len(self.local_dataset):
-            img, label = self.local_dataset[idx]
-        else:
-            try:
-                img = next(self.huggingface_iter)['image']
-            except StopIteration:
-                # Reset the iterator when the end is reached
-                self.huggingface_iter = iter(self.huggingface_dataset)
-                img = next(self.huggingface_iter)['image']
-            label = 1
-
-        img = numpy_to_pil_image(img)
-
-        if self.transform:
-            img = self.transform(img)
-
-        return img, label
-
-    
-class LimitedDataset(Dataset):
-    def __init__(self, dataset, max_size):
-        self.dataset = dataset
-        self.max_size = min(max_size, len(dataset))
-
-    def __len__(self):
-        return self.max_size
-
-    def __getitem__(self, idx):
-        return self.dataset[idx]
-
-def flush():
-    gc.collect()
-    torch.cuda.empty_cache()
-    # print(f'Memory allocated: {torch.cuda.memory_allocated()}, Memory cached: {torch.cuda.memory_cached()}')
-
-def print_memory_usage():
-    memory_info = psutil.virtual_memory()
-    total_memory = memory_info.total / (1024 ** 2)  # Convert to MB
-    used_memory = memory_info.used / (1024 ** 2)  # Convert to MB
-    available_memory = memory_info.available / (1024 ** 2)  # Convert to MB
-    percent_used = memory_info.percent
-
-    print(f"Total memory: {total_memory:.2f} MB")
-    print(f"Used memory: {used_memory:.2f} MB")
-    print(f"Available memory: {available_memory:.2f} MB")
-    print(f"Percent used: {percent_used}%")
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()
@@ -149,7 +46,6 @@ if __name__ == '__main__':
     opt.jpg_prob = 0.5 
     opt.jpg_method = ['cv2','pil']
     opt.jpg_qual = [30,100]
-    opt.validation_frequency = 200
     
     if accelerator.is_main_process:
         accelerator.init_trackers("cnndetector", config=vars(opt))
@@ -183,11 +79,10 @@ if __name__ == '__main__':
     batch_size = opt.batch_size
     
     val_dataset = load_dataset(huggingface_dataset_name, split='validation', use_auth_token=True, streaming=True)
-    combined_val_dataset = CombinedDataset(local_val_dataset, val_dataset, transform)
-    limited_dataset = LimitedDataset(combined_val_dataset, max_size=1000)
+    limited_dataset = CombinedLimitedDataset(local_val_dataset, val_dataset, max_size=1000, transform=transform, dataset_1_is_local=True)
     data_loader_val = DataLoader(limited_dataset, batch_size=batch_size, num_workers=0, pin_memory=True)
     
-    combined_dataset = CombinedDataset(local_dataset, huggingface_dataset, transform)
+    combined_dataset = CombinedLimitedDataset(local_dataset, huggingface_dataset, max_size=200000, transform=transform, dataset_1_is_local=True)
     data_loader = DataLoader(combined_dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True)
 
     model = Trainer(opt)
@@ -212,7 +107,6 @@ if __name__ == '__main__':
 
                 if model.total_steps % opt.loss_freq == 0:
                     print("Train loss: {} at step: {}".format(model.loss, model.total_steps))
-                    # train_writer.add_scalar('loss', model.loss, model.total_steps)
                     accelerator.log({"loss": model.loss})
 
                 if model.total_steps % opt.save_latest_freq == 0:
@@ -223,15 +117,12 @@ if __name__ == '__main__':
                 if (model.total_steps % opt.validation_frequency == 0):
                     model.eval()
                     acc, ap, r_acc, f_acc = validate(model.model, opt, data_loader_val)[:4]
-                    # val_writer.add_scalar('accuracy', acc, model.total_steps)
-                    # val_writer.add_scalar('ap', ap, model.total_steps)
                     accelerator.log({"accuracy": acc, "ap": ap, "r_acc": r_acc, "f_acc": f_acc})
                     if accelerator.is_main_process:
                         print("(Val @ step {}) acc: {}; ap: {}; r_acc: {}; f_acc: {}".format(model.total_steps, acc, ap, r_acc, f_acc))
                     model.train()
                 
                 flush()
-                # print_memory_usage()
 
         if epoch % opt.save_epoch_freq == 0:
             print('saving the model at the end of epoch %d, iters %d' %

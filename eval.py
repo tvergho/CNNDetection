@@ -13,7 +13,7 @@ from torch.utils.data import Dataset, DataLoader
 from datasets import load_dataset
 from sklearn.metrics import average_precision_score, precision_recall_curve, accuracy_score
 from tqdm import tqdm
-from data import numpy_to_pil_image, LimitedDataset, CombinedLimitedDataset
+from data import numpy_to_pil_image, CombinedLimitedDataset
 
 from util import prune_parallel_trained_model
 

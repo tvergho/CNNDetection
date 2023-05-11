@@ -7,11 +7,14 @@ def numpy_to_pil_image(img):
     if len(img.shape) == 2:
         img = np.repeat(img[:, :, np.newaxis], 3, axis=2)
     
-    img = (img * 255).astype(np.uint8)
-    return Image.fromarray(img)
+    try:
+      return Image.fromarray(img)
+    except:
+      img = (img * 255).astype(np.uint8)
+      return Image.fromarray(img)
 
 class CombinedLimitedDataset(Dataset):
-    def __init__(self, dataset_1, dataset_2, transform=None, max_size=None):
+    def __init__(self, dataset_1, dataset_2, transform=None, max_size=None, dataset_1_is_local=False):
         self.dataset_1 = dataset_1
         self.dataset_2 = dataset_2
         self.transform = transform
@@ -24,11 +27,24 @@ class CombinedLimitedDataset(Dataset):
 
     def __getitem__(self, idx):
         if idx < int(self.max_size / 2):
-            img = next(self.iter1)
-            label = 0
+          if not self.dataset_1_is_local:
+            try:
+              img = next(self.iter1)
+              label = 0
+            except StopIteration:
+              self.iter1 = iter(self.dataset_1)
+              img = next(self.iter1)
+              label = 0
+          else:
+            img, label = self.dataset_1[idx]
         else:
-            img = next(self.iter2)
-            label = 1
+            try:
+              img = next(self.iter2)
+              label = 1
+            except StopIteration:
+              self.iter2 = iter(self.dataset_2)
+              img = next(self.iter2)
+              label = 1
 
         img = numpy_to_pil_image(img['image'])
 
@@ -48,3 +64,25 @@ class LimitedDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.dataset[idx]
+
+class LocalDataset(Dataset):
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+        self.image_paths = self._get_image_paths()
+
+    def _get_image_paths(self):
+        image_paths = []
+        for root, dirs, files in os.walk(self.root_dir):
+            for file in files:
+                if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    image_paths.append(os.path.join(root, file))
+        return image_paths
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        img = Image.open(img_path).convert('RGB')
+
+        return img, 0  # "fake" class label
