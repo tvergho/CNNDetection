@@ -51,7 +51,7 @@ if __name__ == '__main__':
         accelerator.init_trackers("cnndetector", config=vars(opt))
     
     # Load local dataset
-    local_data_path = 'imagenet1k'
+    local_data_path = opt.dataroot
     crop_func = transforms.RandomCrop(opt.cropSize)
     flip_func = transforms.RandomHorizontalFlip()
     rz_func = transforms.Lambda(lambda img: custom_resize(img, opt))
