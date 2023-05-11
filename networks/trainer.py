@@ -21,7 +21,6 @@ class Trainer(BaseModel):
 
         if not self.isTrain or opt.continue_train:
             self.model = resnet50(num_classes=1)
-            # self.model = nn.DataParallel(self.model)
             
         if self.isTrain:
             self.loss_fn = nn.BCEWithLogitsLoss()
@@ -37,7 +36,7 @@ class Trainer(BaseModel):
 
         if not self.isTrain or opt.continue_train:
             self.load_networks(opt.epoch)
-        # self.model.to(opt.gpu_ids[0])
+
         self.model, self.optimizer = accelerator.prepare(
             self.model, self.optimizer
         )
@@ -51,13 +50,7 @@ class Trainer(BaseModel):
         return True
 
     def set_input(self, input):
-        # self.input = input[0].to(self.device)
-        # self.label = input[1].to(self.device).float()
-#         self.input = input[0]
-#         self.label = input[1].float()
         self.input = accelerator.gather(input[0])
-        
-        # self.input = input[0]
         self.label = accelerator.gather(input[1]).float()
 
 
@@ -68,12 +61,9 @@ class Trainer(BaseModel):
         return self.loss_fn(self.output.squeeze(1), self.label)
 
     def optimize_parameters(self):
-        # print("optimize")
         self.forward()
         self.loss = self.loss_fn(self.output.squeeze(1), self.label)
         self.optimizer.zero_grad()
-        # print("before backward")
         accelerator.backward(self.loss)
-        # print("before step")
         self.optimizer.step()
 
