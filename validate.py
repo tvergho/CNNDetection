@@ -4,7 +4,7 @@ from networks.resnet import resnet50
 from sklearn.metrics import average_precision_score, precision_recall_curve, accuracy_score
 from options.test_options import TestOptions
 from data import create_dataloader
-
+from tqdm import tqdm
 
 def validate(model, opt, data_loader):
     with torch.no_grad():
