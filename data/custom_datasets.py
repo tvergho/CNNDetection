@@ -31,24 +31,24 @@ class CombinedLimitedDataset(Dataset):
         if idx < int(self.max_size / 2):
           if not self.dataset_1_is_local:
             try:
-              img = next(self.iter1)
+              img = next(self.iter1)['image']
               label = 0
             except StopIteration:
               self.iter1 = iter(self.dataset_1)
-              img = next(self.iter1)
+              img = next(self.iter1)['image']
               label = 0
           else:
             img, label = self.dataset_1[idx]
         else:
             try:
-              img = next(self.iter2)
+              img = next(self.iter2)['image']
               label = 1
             except StopIteration:
               self.iter2 = iter(self.dataset_2)
-              img = next(self.iter2)
+              img = next(self.iter2)['image']
               label = 1
 
-        img = numpy_to_pil_image(img['image'])
+        img = numpy_to_pil_image(img)
 
         if self.transform:
             img = self.transform(img)
