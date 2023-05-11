@@ -9,3 +9,4 @@ tensorboardX
 datasets==2.12.0
 accelerate
 wandb
+efficientnet_pytorch

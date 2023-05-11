@@ -4,6 +4,7 @@ import torch.nn as nn
 from networks.resnet import resnet50
 from networks.base_model import BaseModel, init_weights
 from accelerate import Accelerator
+from efficientnet_pytorch import EfficientNet
 
 accelerator = Accelerator()
 
@@ -15,19 +16,20 @@ class Trainer(BaseModel):
         super(Trainer, self).__init__(opt)
 
         if self.isTrain and not opt.continue_train:
-            self.model = resnet50(pretrained=True)
+            # self.model = resnet50(pretrained=True)
+            self.model = EfficientNet.from_pretrained('efficientnet-b5')
              # freeze all layers
             for param in self.model.parameters():
                 param.requires_grad = False
 
             # replace the last layer
-            self.model.fc = nn.Linear(2048, 1)
+            self.model._fc = nn.Linear(2048, 1)
 
             # unfreeze the last layer
-            for param in self.model.fc.parameters():
+            for param in self.model._fc.parameters():
                 param.requires_grad = True
 
-            torch.nn.init.normal_(self.model.fc.weight.data, 0.0, opt.init_gain)
+            torch.nn.init.normal_(self.model._fc.weight.data, 0.0, opt.init_gain)
 
         if not self.isTrain or opt.continue_train:
             self.model = resnet50(num_classes=1)
