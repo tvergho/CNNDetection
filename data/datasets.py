@@ -64,14 +64,14 @@ class FileNameDataset(datasets.ImageFolder):
         return path
 
 
-def data_augment(img, opt):
+def data_augment(img, opt, noRandom=False, blur=False, jpg=False):
     img = np.array(img)
 
-    if random() < opt.blur_prob:
+    if (not noRandom and random() < opt.blur_prob) or (noRandom and blur):
         sig = sample_continuous(opt.blur_sig)
         gaussian_blur(img, sig)
 
-    if random() < opt.jpg_prob:
+    if (not noRandom and random() < opt.jpg_prob) or (noRandom and jpg):
         method = sample_discrete(opt.jpg_method)
         qual = sample_discrete(opt.jpg_qual)
         img = jpeg_from_key(img, qual, method)

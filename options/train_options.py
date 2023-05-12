@@ -20,6 +20,7 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--beta1', type=float, default=0.9, help='momentum term of adam')
         parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate for adam')
         parser.add_argument('--validation_frequency', type=int, default=200, help='validation frequency')
+        parser.add_argument('--local-rank', type=int, default=0)
 
         self.isTrain = True
         return parser

@@ -13,7 +13,10 @@ def mkdirs(paths):
 
 def mkdir(path):
     if not os.path.exists(path):
-        os.makedirs(path)
+        try:
+            os.makedirs(path)
+        except:
+            pass
 
 
 def unnormalize(tens, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):

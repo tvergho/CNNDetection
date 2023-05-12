@@ -1,13 +1,32 @@
-import functools
 import torch
 import torch.nn as nn
-from networks.resnet import resnet50
 from networks.base_model import BaseModel, init_weights
 from accelerate import Accelerator
-from efficientnet_pytorch import EfficientNet
 import torchvision.models as models
 
 accelerator = Accelerator()
+
+class LinearClassifier(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(LinearClassifier, self).__init__()
+        self.fc = nn.Linear(input_dim, output_dim)
+
+    def forward(self, x):
+        return self.fc(x)
+    
+class AvgPoolClassifier(nn.Module):
+    def __init__(self, input_dim, output_dim, dropout_prob=0.3):
+        super(AvgPoolClassifier, self).__init__()
+        # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout_prob, inplace=True),
+            nn.Linear(input_dim, output_dim),
+        )
+
+    def forward(self, x):
+        # x = self.avgpool(x)
+        # x = torch.flatten(x, 1) # Flatten the tensor before passing it to the classifier
+        return self.classifier(x)
 
 class Trainer(BaseModel):
     def name(self):
@@ -17,29 +36,18 @@ class Trainer(BaseModel):
         super(Trainer, self).__init__(opt)
 
         if self.isTrain and not opt.continue_train:
-            # self.model = resnet50(pretrained=True)
-            self.model = models.efficientnet_v2_m(weights=models.EfficientNet_V2_M_Weights.DEFAULT)
-             # freeze all layers
-            for param in self.model.parameters():
-                param.requires_grad = False
-
-            # replace the last layer
-            self.model.classifier[1] = nn.Linear(1280, 1)
-
-            # unfreeze the last layer
-            for param in self.model.classifier[1].parameters():
-                param.requires_grad = True
-
+            self.model = AvgPoolClassifier(1280, 1)
             torch.nn.init.normal_(self.model.classifier[1].weight.data, 0.0, opt.init_gain)
 
         if not self.isTrain or opt.continue_train:
-            self.model = resnet50(num_classes=1)
+            self.model = AvgPoolClassifier(1280, 1)
+            self.load_networks(opt.epoch)
             
         if self.isTrain:
             self.loss_fn = nn.BCEWithLogitsLoss()
-            # initialize optimizers
+
             if opt.optim == 'adam':
-                self.optimizer = torch.optim.Adam(self.model.classifier[1].parameters(),
+                self.optimizer = torch.optim.Adam(self.model.parameters(),
                                   lr=opt.lr, betas=(opt.beta1, 0.999))
             elif opt.optim == 'sgd':
                 self.optimizer = torch.optim.SGD(self.model.parameters(),
@@ -47,14 +55,9 @@ class Trainer(BaseModel):
             else:
                 raise ValueError("optim should be [adam, sgd]")
 
-        if not self.isTrain or opt.continue_train:
-            self.load_networks(opt.epoch)
+        self.model, self.optimizer = accelerator.prepare(self.model, self.optimizer)
 
-        self.model, self.optimizer = accelerator.prepare(
-            self.model, self.optimizer
-        )
-
-
+    
     def adjust_learning_rate(self, min_lr=1e-6):
         for param_group in self.optimizer.param_groups:
             param_group['lr'] /= 10.
@@ -79,4 +82,3 @@ class Trainer(BaseModel):
         self.optimizer.zero_grad()
         accelerator.backward(self.loss)
         self.optimizer.step()
-

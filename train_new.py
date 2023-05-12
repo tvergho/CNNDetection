@@ -27,62 +27,89 @@ from scipy.ndimage.filters import gaussian_filter
 from huggingface_hub import login
 
 from sklearn.metrics import average_precision_score, precision_recall_curve, accuracy_score
-from data import create_dataloader, data_augment, custom_resize, LocalDataset, LimitedDataset, CombinedLimitedDataset, get_dataset
+from data import create_dataloader, data_augment, custom_resize
 from earlystop import EarlyStopping
-from networks.trainer import Trainer
+from networks.trainer_new import Trainer
 from accelerate import Accelerator
 from validate import validate
 
 from util import flush, print_memory_usage
+from pathlib import Path
+import random
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 accelerator = Accelerator(log_with="wandb")
 
-train_split_ratio = 0.995
+train_split_ratio = 0.95
+
+# class PTFileDataset(Dataset):
+#     def __init__(self, root_dir):
+#         self.root_dir = Path(root_dir)
+#         self.pt_files = list(self.root_dir.glob('**/*.pt'))
+#         self.labels = [str(file.parent.name) for file in self.pt_files]
+
+#         # create a mapping from label to integer
+#         self.label_to_int = {
+#             '0_real': 0,
+#             '1_fake': 1
+#         }
+
+#     def __getitem__(self, idx):
+#         pt_file = self.pt_files[idx]
+#         data = torch.load(pt_file)
+#         label = self.label_to_int[self.labels[idx]]
+#         return data, label
+
+#     def __len__(self):
+#         return len(self.pt_files)
+
+class PTFileDataset(Dataset):
+    def __init__(self, root_dir):
+        self.root_dir = Path(root_dir)
+        self.pt_files = list(self.root_dir.glob('**/*.pt'))
+        self.labels = [str(file.parent.name) for file in self.pt_files]
+
+        # create a mapping from label to integer
+        self.label_to_int = {
+            '0_real': 0,
+            '1_fake': 1
+        }
+
+        # get the unique base paths (without the index) of the pt files
+        base_files = list(set([str(file).rsplit('_', 1)[0] for file in self.pt_files]))
+
+        # precompute the groups of augmented files
+        self.augmented_files = []
+        for base_file in base_files:
+            aug_files = [Path(f"{base_file}_{i}.pt") for i in range(8)]
+            self.augmented_files.append(aug_files)
+
+    def __getitem__(self, idx):
+        aug_files = self.augmented_files[idx]
+        pt_file = random.choice(aug_files)
+        data = torch.load(pt_file)
+        label = self.label_to_int[pt_file.parent.name]
+        return data, label
+
+    def __len__(self):
+        return len(self.augmented_files)
+
 
 def get_data_loaders(opt):
-    local_data_path = opt.dataroot
     batch_size = opt.batch_size
-
-    crop_func = transforms.RandomCrop(opt.cropSize)
-    flip_func = transforms.RandomHorizontalFlip()
-    rz_func = transforms.Lambda(lambda img: custom_resize(img, opt))
-    transform = transforms.Compose([
-                    rz_func,
-                    transforms.Lambda(lambda img: data_augment(img, opt)),
-                    crop_func,
-                    flip_func,
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                ])
-    local_dataset = LocalDataset(local_data_path)
+    local_dataset = PTFileDataset(opt.dataroot)
     
     train_size = int(train_split_ratio * len(local_dataset))
     val_size = len(local_dataset) - train_size
-    local_train_dataset, local_val_dataset = random_split(local_dataset, [train_size, val_size])
+    train_dataset, val_dataset = random_split(local_dataset, [train_size, val_size])
 
-    # Load Huggingface dataset
-    # huggingface_dataset_name = 'imagenet-1k'
-    # huggingface_dataset = load_dataset(huggingface_dataset_name, split='test', use_auth_token=True, streaming=True)
-    
-    # Create DataLoader
-    
-    dataset = get_dataset(opt)
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    
-    # val_dataset = load_dataset(huggingface_dataset_name, split='validation', use_auth_token=True, streaming=True)
-    # limited_dataset = CombinedLimitedDataset(local_val_dataset, val_dataset, max_size=1000, transform=transform, dataset_1_is_local=True)
-    # combined_dataset = CombinedLimitedDataset(local_dataset, huggingface_dataset, max_size=200000, transform=transform, dataset_1_is_local=True)
-    
     data_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True)
     data_loader_val = DataLoader(val_dataset, batch_size=batch_size, num_workers=0, pin_memory=True)
     
     return data_loader, data_loader_val
 
-
 if __name__ == '__main__':
     opt = TrainOptions().parse()
-    opt.name = "diffusion_blur_jpg_prob0.5"
     opt.blur_prob = 0.5 
     opt.blur_sig = [0.0, 3.0] 
     opt.jpg_prob = 0.5 
@@ -102,16 +129,14 @@ if __name__ == '__main__':
     )
 
     for epoch in range(opt.niter):
-        epoch_start_time = time.time()
-        iter_data_time = time.time()
         epoch_iter = 0
 
         with tqdm(data_loader) as t:
-            for (combined_data, combined_labels) in t:
+            for (data, labels) in t:
                 model.total_steps += 1
                 epoch_iter += opt.batch_size
 
-                model.set_input((combined_data, combined_labels))
+                model.set_input((data, labels))
                 model.optimize_parameters()
 
                 if model.total_steps % opt.loss_freq == 0:
