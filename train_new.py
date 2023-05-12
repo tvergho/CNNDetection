@@ -64,7 +64,7 @@ train_split_ratio = 0.95
 #         return len(self.pt_files)
 
 class PTFileDataset(Dataset):
-    def __init__(self, root_dir):
+    def __init__(self, root_dir, num_indexes=6):
         self.root_dir = Path(root_dir)
         self.pt_files = list(self.root_dir.glob('**/*.pt'))
         self.labels = [str(file.parent.name) for file in self.pt_files]
@@ -81,7 +81,7 @@ class PTFileDataset(Dataset):
         # precompute the groups of augmented files
         self.augmented_files = []
         for base_file in base_files:
-            aug_files = [Path(f"{base_file}_{i}.pt") for i in range(8)]
+            aug_files = [Path(f"{base_file}_{i}.pt") for i in range(num_indexes)]
             self.augmented_files.append(aug_files)
 
     def __getitem__(self, idx):
@@ -97,7 +97,7 @@ class PTFileDataset(Dataset):
 
 def get_data_loaders(opt):
     batch_size = opt.batch_size
-    local_dataset = PTFileDataset(opt.dataroot)
+    local_dataset = PTFileDataset(opt.dataroot, num_indexes=1)
     
     train_size = int(train_split_ratio * len(local_dataset))
     val_size = len(local_dataset) - train_size
@@ -163,7 +163,7 @@ if __name__ == '__main__':
                   (epoch, model.total_steps))
             model.save_networks('latest')
             model.save_networks(epoch)
-            
+        
         early_stopping(acc, model)
         if early_stopping.early_stop:
             cont_train = model.adjust_learning_rate()

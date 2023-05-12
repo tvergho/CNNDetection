@@ -17,15 +17,15 @@ class LinearClassifier(nn.Module):
 class AvgPoolClassifier(nn.Module):
     def __init__(self, input_dim, output_dim, dropout_prob=0.3):
         super(AvgPoolClassifier, self).__init__()
-        # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.classifier = nn.Sequential(
             nn.Dropout(dropout_prob, inplace=True),
             nn.Linear(input_dim, output_dim),
         )
 
     def forward(self, x):
-        # x = self.avgpool(x)
-        # x = torch.flatten(x, 1) # Flatten the tensor before passing it to the classifier
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1) # Flatten the tensor before passing it to the classifier
         return self.classifier(x)
 
 class Trainer(BaseModel):
