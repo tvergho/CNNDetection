@@ -68,24 +68,24 @@ class Augmentations:
         return augmented_images
 
 # Usage:
-# transform = Augmentations(
-#     size=crop_size, 
-#     augment_fn=data_augment, 
-#     mean=[0.485, 0.456, 0.406], 
-#     std=[0.229, 0.224, 0.225]
-# )
+transform = Augmentations(
+    size=crop_size, 
+    augment_fn=data_augment, 
+    mean=[0.485, 0.456, 0.406], 
+    std=[0.229, 0.224, 0.225]
+)
 
 
-transform_func = transforms.Compose([
-                transforms.Lambda(lambda img: data_augment(img, opt)),
-                transforms.RandomResizedCrop(crop_size),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ])
+# transform_func = transforms.Compose([
+#                 transforms.Lambda(lambda img: data_augment(img, opt)),
+#                 transforms.RandomResizedCrop(crop_size),
+#                 transforms.RandomHorizontalFlip(),
+#                 transforms.ToTensor(),
+#                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+#             ])
 
-def transform(img):
-    return [transform_func(img)]
+# def transform(img):
+#     return [transform_func(img)]
 
 class ImageDataset(Dataset):
     def __init__(self, image_paths, transform, output_dir, input_dir):
@@ -93,12 +93,12 @@ class ImageDataset(Dataset):
         self.image_paths = []
         for image_path in image_paths:
             output_image_path = output_dir / image_path.relative_to(input_dir)
-            output_image_path = output_image_path.with_suffix('.pt')  # replace .png with .pt
+            output_image_path = output_image_path.with_stem(f"{output_image_path.stem}_0").with_suffix('.pt') # replace .png with .pt
             if not output_image_path.exists():
                 self.image_paths.append(image_path)
 
     def __len__(self):
-        return len(self.image_paths)
+        return 100000
 
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]
@@ -181,7 +181,7 @@ def augmented_process_and_save_images(input_dir, output_dir, batch_size):
 
             
 
-augmented_process_and_save_images(Path("dataset/train"), Path("dataset/trainvecunpooled"), batch_size=8)
+augmented_process_and_save_images(Path("dataset/train"), Path("dataset/aug"), batch_size=8)
 
 # image_path = "dataset/train/airplane/0_real/06215.png"
 # image = Image.open(image_path)

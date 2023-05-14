@@ -18,18 +18,20 @@ class Trainer(BaseModel):
 
         if self.isTrain and not opt.continue_train:
             # self.model = resnet50(pretrained=True)
-            self.model = models.efficientnet_v2_m(weights=models.EfficientNet_V2_M_Weights.DEFAULT)
+            self.model = models.efficientnet_v2_m(weights=models. EfficientNet_V2_M_Weights.DEFAULT)
              # freeze all layers
-            for param in self.model.parameters():
-                param.requires_grad = False
+            # for param in self.model.parameters():
+            #     param.requires_grad = False
 
             # replace the last layer
-            self.model.classifier[1] = nn.Linear(1280, 1)
+            self.model.classifier[0] = nn.Dropout(0.3, inplace=True)
+            self.model.classifier[1] = nn.Linear(self.model.classifier[1].in_features, 1)
 
             # unfreeze the last layer
-            for param in self.model.classifier[1].parameters():
-                param.requires_grad = True
+            # for param in self.model.classifier[1].parameters():
+            #     param.requires_grad = True
 
+            # torch.nn.init.normal_(self.model.classifier[0].weight.data, 0.0, opt.init_gain)
             torch.nn.init.normal_(self.model.classifier[1].weight.data, 0.0, opt.init_gain)
 
         if not self.isTrain or opt.continue_train:
@@ -39,7 +41,7 @@ class Trainer(BaseModel):
             self.loss_fn = nn.BCEWithLogitsLoss()
             # initialize optimizers
             if opt.optim == 'adam':
-                self.optimizer = torch.optim.Adam(self.model.classifier[1].parameters(),
+                self.optimizer = torch.optim.Adam(self.model.parameters(),
                                   lr=opt.lr, betas=(opt.beta1, 0.999))
             elif opt.optim == 'sgd':
                 self.optimizer = torch.optim.SGD(self.model.parameters(),
