@@ -12,7 +12,7 @@ from data import create_dataloader
 from networks.trainer_new import AvgPoolClassifier
 from util import prune_parallel_trained_model
 from networks.ef import FeatureExtractionEfficientNet
-from networks.trainer_vit import ViTNetwork
+from networks.trainer_vit import ViTNetwork, ViTNetworkImage
 
 # Running tests
 opt = TestOptions().parse(print_options=False)
@@ -28,11 +28,12 @@ for v_id, val in enumerate(vals):
 
     # model = resnet50(num_classes=1)
     if opt.vit:
-        model = ViTNetwork()
-        pretrained_model = models.efficientnet_v2_m(weights=models.EfficientNet_V2_M_Weights.DEFAULT)
-        pre_model = FeatureExtractionEfficientNet(pretrained_model)
-        pre_model.cuda()
-        pre_model.eval()
+        model = ViTNetworkImage()
+        pre_model = None
+        # pretrained_model = models.efficientnet_v2_m(weights=models.EfficientNet_V2_M_Weights.DEFAULT)
+        # pre_model = FeatureExtractionEfficientNet(pretrained_model)
+        # pre_model.cuda()
+        # pre_model.eval()
     elif not opt.avg_pool_classifier:
         model = models.efficientnet_v2_m(weights=models.EfficientNet_V2_M_Weights.DEFAULT)
         model.classifier[0] = nn.Dropout(0.3, inplace=True)

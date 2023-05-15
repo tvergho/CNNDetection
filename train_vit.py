@@ -41,7 +41,7 @@ import random
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 accelerator = Accelerator(log_with="wandb")
 
-train_split_ratio = 0.95
+train_split_ratio = 0.995
 
 class PTFileDataset(Dataset):
     def __init__(self, root_dir, num_indexes=6):

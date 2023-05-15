@@ -43,7 +43,7 @@ class ViTNetwork(nn.Module):
     
 class ViTNetworkImage(nn.Module):
     def __init__(self, pretrained_model_name='vit_base_patch16_224', num_classes=1):
-        super(ViTNetwork, self).__init__()
+        super(ViTNetworkImage, self).__init__()
 
         # load pretrained ViT model
         self.vit_model = timm.create_model(pretrained_model_name, pretrained=True)
@@ -52,7 +52,7 @@ class ViTNetworkImage(nn.Module):
         
         ef_model = models.efficientnet_v2_m()
         ef_model.classifier[0] = nn.Dropout(0.3, inplace=True)
-        ef_model.classifier[1] = nn.Linear(model.classifier[1].in_features, 1)
+        ef_model.classifier[1] = nn.Linear(ef_model.classifier[1].in_features, 1)
         ef_model.load_state_dict(new_state_dict)
         self.ef_model = FeatureExtractionEfficientNet(ef_model)
 
@@ -62,7 +62,7 @@ class ViTNetworkImage(nn.Module):
 
         # adjust the size of positional embeddings
         embed_dim = self.vit_model.pos_embed.shape[-1]  # keep the same embed_dim as in the pretrained model
-        self.vit_model.pos_embed = nn.Parameter(torch.zeros(1, 226, 768))
+        self.vit_model.pos_embed = nn.Parameter(torch.zeros(1, 50, 768))
 
         # replace the classification head
         self.vit_model.head = nn.Linear(self.vit_model.head.in_features, num_classes)

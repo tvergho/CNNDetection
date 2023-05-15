@@ -25,15 +25,15 @@ crop_size = 480
 opt = TrainOptions().parse()
 
 
-if not dist.is_initialized():
-    dist.init_process_group(backend='nccl', init_method='env://')
+# if not dist.is_initialized():
+#     dist.init_process_group(backend='nccl', init_method='env://')
 
-torch.cuda.set_device(opt.local_rank)
+# torch.cuda.set_device(opt.local_rank)
 model = models.efficientnet_v2_m(weights=models.EfficientNet_V2_M_Weights.DEFAULT)
-model.classifier[1] = nn.Identity()
-# model = FeatureExtractionEfficientNet(pretrained_model)
-model = model.to(opt.local_rank)
-model = DistributedDataParallel(model, device_ids=[opt.local_rank])
+# model.classifier[1] = nn.Identity()
+model = FeatureExtractionEfficientNet(model)
+# model = model.to(opt.local_rank)
+# model = DistributedDataParallel(model, device_ids=[opt.local_rank])
 
 class Augmentations:
     def __init__(self, size, augment_fn, mean, std):
@@ -135,11 +135,13 @@ def augmented_process_and_save_images(input_dir, output_dir, batch_size):
                 # Save the feature vector
                 torch.save(feature_vector.cpu(), str(output_image_path))  # Move to CPU before saving
 
-augmented_process_and_save_images(Path("dataset/train"), Path("dataset/extracted"), batch_size=8)
+# augmented_process_and_save_images(Path("dataset/train"), Path("dataset/extracted"), batch_size=8)
 
-# image_path = "dataset/train/airplane/0_real/06215.png"
-# image = Image.open(image_path)
-# images = transform(image)
+image_path = "dataset/train/airplane/0_real/06215.png"
+image = Image.open(image_path)
+images = transform(image)
+feature_vectors = model(images[0].unsqueeze(dim=0))
+print(feature_vectors.size())
 # print(len(images))
 
 # to_pil = ToPILImage()
