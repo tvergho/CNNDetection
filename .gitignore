@@ -9,3 +9,4 @@ checkpoints/
 */.ipynb_checkpoints/
 dataset/*
 weights/*
+download/*

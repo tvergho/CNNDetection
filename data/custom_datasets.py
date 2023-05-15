@@ -88,3 +88,28 @@ class LocalDataset(Dataset):
         img = Image.open(img_path).convert('RGB')
 
         return img, 0  # "fake" class label
+
+class ImageDataset(Dataset):
+    def __init__(self, root_dir, transform=None):
+        self.root_dir = Path(root_dir)
+        self.image_files = list(self.root_dir.glob('**/*.jpg')) + list(self.root_dir.glob('**/*.jpeg')) + list(self.root_dir.glob('**/*.png'))
+        self.labels = [str(file.parent.name) for file in self.image_files]
+
+        self.label_to_int = {
+            '0_real': 0,
+            '1_fake': 1
+        }
+        self.transform = transform
+
+    def __getitem__(self, idx):
+        img_path = self.image_files[idx]
+        img = Image.open(img_path).convert('RGB')
+        
+        if self.transform:
+            img = self.transform(img)
+            
+        label = self.label_to_int[img_path.parent.name]
+        return img, label
+
+    def __len__(self):
+        return len(self.image_files)

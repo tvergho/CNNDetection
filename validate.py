@@ -6,12 +6,14 @@ from options.test_options import TestOptions
 from data import create_dataloader
 from tqdm import tqdm
 
-def validate(model, opt, data_loader):
+def validate(model, opt, data_loader, pre_model=None):
     with torch.no_grad():
         y_true, y_pred = [], []
         with tqdm(data_loader) as t:
             for img, label in t:
                 in_tens = img.cuda()
+                if pre_model:
+                    in_tens = pre_model(in_tens)
                 y_pred.extend(model(in_tens).sigmoid().flatten().tolist())
                 y_true.extend(label.flatten().tolist())
 

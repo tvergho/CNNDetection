@@ -16,4 +16,4 @@ vals = ['progan', 'stylegan', 'biggan', 'cyclegan', 'stargan', 'gaugan',
 multiclass = [1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0]
 
 # model
-model_path = 'weights/effv2.pth'
+model_path = 'weights/augclass.pth'
