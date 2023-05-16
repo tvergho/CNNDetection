@@ -33,21 +33,21 @@ class CombinedLimitedDataset(Dataset):
           if not self.dataset_1_is_local:
             try:
               img = next(self.iter1)['image']
-              label = 0
+              label = 1
             except StopIteration:
               self.iter1 = iter(self.dataset_1)
               img = next(self.iter1)['image']
-              label = 0
+              label = 1
           else:
             img, label = self.dataset_1[idx]
         else:
             try:
               img = next(self.iter2)['image']
-              label = 1
+              label = 0
             except StopIteration:
               self.iter2 = iter(self.dataset_2)
               img = next(self.iter2)['image']
-              label = 1
+              label = 0
 
         img = numpy_to_pil_image(img)
 
@@ -88,7 +88,7 @@ class LocalDataset(Dataset):
         img_path = self.image_paths[idx]
         img = Image.open(img_path).convert('RGB')
 
-        return img, 0  # "fake" class label
+        return img, 1  # "fake" class label
 
 class ImageDataset(Dataset):
     def __init__(self, root_dir, transform=None):
