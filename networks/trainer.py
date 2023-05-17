@@ -6,13 +6,13 @@ from networks.base_model import BaseModel, init_weights
 from accelerate import Accelerator
 import torchvision.models as models
 
-from diffusers import LDMPipeline
+from diffusers import LDMPipeline, UNet2DModel, VQModel, DDIMScheduler
 from typing import Optional, Union, List, Tuple
 from torch import Tensor, autocast, inference_mode
 from tqdm import tqdm
 import numpy as np
 
-accelerator = Accelerator(mixed_precision="fp16")
+accelerator = Accelerator()
 
 class Trainer(BaseModel):
     def name(self):
@@ -22,8 +22,10 @@ class Trainer(BaseModel):
         super(Trainer, self).__init__(opt)
 
         if self.isTrain and not opt.continue_train:
-            self.model = models.efficientnet_v2_s()
+            self.model = models.efficientnet_v2_s(weights=models.EfficientNet_V2_S_Weights.DEFAULT)
+            self.model.classifier[0] = nn.Dropout(p=0.3, inplace=True)
             self.model.classifier[1] = nn.Linear(self.model.classifier[1].in_features, 1)
+            torch.nn.init.normal_(self.model.classifier[1].weight.data, 0.0, opt.init_gain)
             
         if not self.isTrain or opt.continue_train:
             self.model = resnet50(num_classes=1)
@@ -43,25 +45,32 @@ class Trainer(BaseModel):
         if not self.isTrain or opt.continue_train:
             self.load_networks(opt.epoch)
 
-        self.pipeline = LDMPipeline.from_pretrained("CompVis/ldm-celebahq-256", device_map="auto")
-        
-        self.model, self.optimizer, self.pipeline = accelerator.prepare(
-            self.model, self.optimizer, self.pipeline
+        self.unet = UNet2DModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="unet")
+        self.vqvae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae")
+        self.scheduler = DDIMScheduler.from_pretrained("CompVis/ldm-celebahq-256", subfolder="scheduler")
+
+        self.model, self.optimizer, self.unet, self.vqvae, self.scheduler = accelerator.prepare(
+            self.model, self.optimizer, self.unet, self.vqvae, self.scheduler
         )
         
+        for param in self.unet.parameters():
+            param.requires_grad = False
+        for param in self.vqvae.parameters():
+            param.requires_grad = False
+        
     def get_image_dire(self, image):
-        latents = self.pipeline.vqvae.encode(image).latents
+        latents = self.vqvae.encode(image).latents
 
-        self.pipeline.scheduler.set_timesteps(20)
+        self.scheduler.set_timesteps(20)
         with autocast("cuda"), inference_mode():
-            for i, e in enumerate(np.flip(self.pipeline.scheduler.timesteps, 0)):
-                latents = self.pipeline.scheduler.reverse_step(self.pipeline.unet(latents, e).sample, e, latents).next_sample
+            for i, e in enumerate(np.flip(self.scheduler.timesteps, 0)):
+                latents = self.scheduler.reverse_step(self.unet(latents, e).sample, e, latents).next_sample
                 
         latents_ = latents.clone()
         
         with autocast("cuda"), inference_mode():
-            for i, e in enumerate(self.pipeline.scheduler.timesteps):
-                latents_ = self.pipeline.scheduler.step(self.pipeline.unet(latents_, e).sample, e, latents_).prev_sample
+            for i, e in enumerate(self.scheduler.timesteps):
+                latents_ = self.scheduler.step(self.unet(latents_, e).sample, e, latents_).prev_sample
                 
         dire = self.calculate_dire(image, latents_)
         return dire
@@ -69,7 +78,7 @@ class Trainer(BaseModel):
     def calculate_dire(self, image, latents_):
         # Decode the latent vectors
         decoded_image1 = image
-        decoded_image2 = self.pipeline.vqvae.decode(latents_).sample
+        decoded_image2 = self.vqvae.decode(latents_).sample
 
         # Ensure the images are in the same range (0, 1)
         decoded_image1 = (decoded_image1 / 2 + 0.5).clamp(0, 1)
@@ -95,6 +104,7 @@ class Trainer(BaseModel):
 
     def forward(self):
         dire = self.get_image_dire(self.input)
+        dire = accelerator.gather(dire)
         self.output = self.model(dire)
 
     def get_loss(self):
@@ -104,7 +114,7 @@ class Trainer(BaseModel):
         with autocast("cuda"):
             self.forward()
             self.loss = self.loss_fn(self.output.squeeze(1), self.label)
-            self.optimizer.zero_grad()
+        self.optimizer.zero_grad()
         # self.loss.backward()
         accelerator.backward(self.loss)
         self.optimizer.step()

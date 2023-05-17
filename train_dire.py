@@ -42,7 +42,7 @@ from torchvision.utils import save_image
 from diffusers.utils import pt_to_pil
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-accelerator = Accelerator(log_with="wandb", mixed_precision="fp16")
+accelerator = Accelerator(log_with="wandb")
 
 train_split_ratio = 0.995
 
@@ -64,15 +64,15 @@ def get_data_loaders(opt):
     
     train_size = int(train_split_ratio * len(local_dataset))
     val_size = len(local_dataset) - train_size
-    local_train_dataset, local_val_dataset = random_split(local_dataset, [train_size, val_size])
+    # local_train_dataset, local_val_dataset = random_split(local_dataset, [train_size, val_size])
 
     # huggingface_dataset_name = 'imagenet-1k'
     # huggingface_dataset = load_dataset(huggingface_dataset_name, split='test', use_auth_token=True, streaming=True)
     
     # Create DataLoader
     
-    dataset = get_dataset(opt)
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    # dataset = get_dataset(opt)
+    train_dataset, val_dataset = random_split(local_dataset, [train_size, val_size])
     
     data_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True)
     data_loader_val = DataLoader(val_dataset, batch_size=batch_size, num_workers=0, pin_memory=True)
