@@ -135,7 +135,7 @@ if __name__ == '__main__':
                         print("(Val @ step {}) acc: {}; ap: {}; r_acc: {}; f_acc: {}".format(model.total_steps, acc, ap, r_acc, f_acc))
                     model.train()
                 
-                flush()
+                # flush()
 
         if epoch % opt.save_epoch_freq == 0:
             print('saving the model at the end of epoch %d, iters %d' %

@@ -28,7 +28,9 @@ class Trainer(BaseModel):
             torch.nn.init.normal_(self.model.classifier[1].weight.data, 0.0, opt.init_gain)
             
         if not self.isTrain or opt.continue_train:
-            self.model = resnet50(num_classes=1)
+            self.model = models.efficientnet_v2_s()
+            self.model.classifier[0] = nn.Dropout(p=0.3, inplace=True)
+            self.model.classifier[1] = nn.Linear(self.model.classifier[1].in_features, 1)
             
         if self.isTrain:
             self.loss_fn = nn.BCEWithLogitsLoss()
@@ -57,24 +59,25 @@ class Trainer(BaseModel):
             param.requires_grad = False
         for param in self.vqvae.parameters():
             param.requires_grad = False
-        
+    
+    @torch.compile
     def get_image_dire(self, image):
-        latents = self.vqvae.encode(image).latents
+        with autocast("cuda"):
+            latents = self.vqvae.encode(image).latents
 
-        self.scheduler.set_timesteps(20)
-        with autocast("cuda"), inference_mode():
+            self.scheduler.set_timesteps(20)
             for i, e in enumerate(np.flip(self.scheduler.timesteps, 0)):
                 latents = self.scheduler.reverse_step(self.unet(latents, e).sample, e, latents).next_sample
-                
-        latents_ = latents.clone()
-        
-        with autocast("cuda"), inference_mode():
+
+            latents_ = latents.clone()
+
             for i, e in enumerate(self.scheduler.timesteps):
                 latents_ = self.scheduler.step(self.unet(latents_, e).sample, e, latents_).prev_sample
-                
-        dire = self.calculate_dire(image, latents_)
-        return dire
+
+            dire = self.calculate_dire(image, latents_)
+            return dire
     
+    @torch.compile
     def calculate_dire(self, image, latents_):
         # Decode the latent vectors
         decoded_image1 = image
