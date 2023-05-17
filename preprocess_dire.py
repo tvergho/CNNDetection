@@ -27,14 +27,20 @@ import numpy as np
 crop_size = 256
 opt = TrainOptions().parse()
 
-unet = UNet2DModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="unet").cuda()
-vqvae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae").cuda()
+if not dist.is_initialized():
+    dist.init_process_group(backend='nccl', init_method='env://')
+torch.cuda.set_device(opt.local_rank)
+
+unet = UNet2DModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="unet").to(opt.local_rank)
+vqvae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae").to(opt.local_rank)
 scheduler = DDIMScheduler.from_pretrained("CompVis/ldm-celebahq-256", subfolder="scheduler")
 
-unet.enable_xformers_memory_efficient_attention()
-vqvae.enable_xformers_memory_efficient_attention()
+# unet = DistributedDataParallel(unet, device_ids=[opt.local_rank])
+# vqvae = DistributedDataParallel(vqvae, device_ids=[opt.local_rank])
 
-@torch.compile
+# unet.enable_xformers_memory_efficient_attention()
+# vqvae.enable_xformers_memory_efficient_attention()
+
 def get_image_dire(image):
     with autocast("cuda"), torch.no_grad():
         latents = vqvae.encode(image).latents
@@ -51,7 +57,6 @@ def get_image_dire(image):
         dire = calculate_dire(image, latents_)
         return dire
 
-@torch.compile
 def calculate_dire(image, latents_):
     # Decode the latent vectors
     decoded_image1 = image
@@ -103,11 +108,12 @@ def augmented_process_and_save_images(input_dir, output_dir, batch_size):
     image_paths = []
     for root, _, files in os.walk(input_dir):
         for file in files:
-            if file.endswith(".png"):  # or whatever your image file extension is
+            if file.endswith(".png") or file.endswith(".jpg") or file.endswith(".jpeg"):  # or whatever your image file extension is
                 image_paths.append(Path(root) / file)
 
     dataset = ImageDataset(image_paths, transform, output_dir, input_dir)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+    sampler = DistributedSampler(dataset)
+    dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=4, sampler=sampler)
 
     for augmented_images_batch, batch_image_paths in tqdm(dataloader):
         # Process each batch of augmented images
