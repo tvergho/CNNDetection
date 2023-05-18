@@ -31,19 +31,22 @@ if not dist.is_initialized():
     dist.init_process_group(backend='nccl', init_method='env://')
 torch.cuda.set_device(opt.local_rank)
 
-unet = UNet2DModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="unet").to(opt.local_rank)
-vqvae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae").to(opt.local_rank)
+unet = UNet2DModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="unet", torch_dtype=torch.float16).to(opt.local_rank)
+vqvae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae", torch_dtype=torch.float16).to(opt.local_rank)
 scheduler = DDIMScheduler.from_pretrained("CompVis/ldm-celebahq-256", subfolder="scheduler")
-
-# unet = DistributedDataParallel(unet, device_ids=[opt.local_rank])
-# vqvae = DistributedDataParallel(vqvae, device_ids=[opt.local_rank])
 
 # unet.enable_xformers_memory_efficient_attention()
 # vqvae.enable_xformers_memory_efficient_attention()
 
+unet = DistributedDataParallel(unet, device_ids=[opt.local_rank])
+vqvae = DistributedDataParallel(vqvae, device_ids=[opt.local_rank])
+
+
+
+@torch.compile
 def get_image_dire(image):
     with autocast("cuda"), torch.no_grad():
-        latents = vqvae.encode(image).latents
+        latents = vqvae.module.encode(image.half()).latents
 
         scheduler.set_timesteps(20)
         for i, e in enumerate(np.flip(scheduler.timesteps, 0)):
@@ -54,13 +57,14 @@ def get_image_dire(image):
         for i, e in enumerate(scheduler.timesteps):
             latents_ = scheduler.step(unet(latents_, e).sample, e, latents_).prev_sample
 
-        dire = calculate_dire(image, latents_)
+        dire = calculate_dire(image.half(), latents_)
         return dire
 
+@torch.compile
 def calculate_dire(image, latents_):
     # Decode the latent vectors
     decoded_image1 = image
-    decoded_image2 = vqvae.decode(latents_).sample
+    decoded_image2 = vqvae.module.decode(latents_).sample
 
     # Ensure the images are in the same range (0, 1)
     decoded_image1 = (decoded_image1 / 2 + 0.5).clamp(0, 1)
@@ -113,7 +117,7 @@ def augmented_process_and_save_images(input_dir, output_dir, batch_size):
 
     dataset = ImageDataset(image_paths, transform, output_dir, input_dir)
     sampler = DistributedSampler(dataset)
-    dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=4, sampler=sampler)
+    dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=2, sampler=sampler)
 
     for augmented_images_batch, batch_image_paths in tqdm(dataloader):
         # Process each batch of augmented images
@@ -143,4 +147,4 @@ def augmented_process_and_save_images(input_dir, output_dir, batch_size):
                 # Save the feature vector
                 # torch.save(feature_vector.cpu(), str(output_image_path))  # Move to CPU before saving
 
-augmented_process_and_save_images(Path("dataset/train"), Path("dataset/dire"), batch_size=16)
+augmented_process_and_save_images(Path("dataset/train"), Path("dataset/dire"), batch_size=8)
