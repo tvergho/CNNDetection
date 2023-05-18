@@ -29,7 +29,7 @@ class Trainer(BaseModel):
             
         if not self.isTrain or opt.continue_train:
             self.model = models.efficientnet_v2_s()
-            self.model.classifier[0] = nn.Dropout(p=0.3, inplace=True)
+            # self.model.classifier[0] = nn.Dropout(p=0.3, inplace=True)
             self.model.classifier[1] = nn.Linear(self.model.classifier[1].in_features, 1)
             
         if self.isTrain:
@@ -47,18 +47,18 @@ class Trainer(BaseModel):
         if not self.isTrain or opt.continue_train:
             self.load_networks(opt.epoch)
 
-        self.unet = UNet2DModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="unet")
-        self.vqvae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae")
-        self.scheduler = DDIMScheduler.from_pretrained("CompVis/ldm-celebahq-256", subfolder="scheduler")
+        # self.unet = UNet2DModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="unet")
+        # self.vqvae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae")
+        # self.scheduler = DDIMScheduler.from_pretrained("CompVis/ldm-celebahq-256", subfolder="scheduler")
 
-        self.model, self.optimizer, self.unet, self.vqvae, self.scheduler = accelerator.prepare(
-            self.model, self.optimizer, self.unet, self.vqvae, self.scheduler
+        self.model, self.optimizer = accelerator.prepare(
+            self.model, self.optimizer
         )
         
-        for param in self.unet.parameters():
-            param.requires_grad = False
-        for param in self.vqvae.parameters():
-            param.requires_grad = False
+        # for param in self.unet.parameters():
+        #     param.requires_grad = False
+        # for param in self.vqvae.parameters():
+        #     param.requires_grad = False
     
     @torch.compile
     def get_image_dire(self, image):
@@ -106,9 +106,9 @@ class Trainer(BaseModel):
         self.label = accelerator.gather(input[1]).float()
 
     def forward(self):
-        dire = self.get_image_dire(self.input)
-        dire = accelerator.gather(dire)
-        self.output = self.model(dire)
+        # dire = self.get_image_dire(self.input)
+        # dire = accelerator.gather(dire)
+        self.output = self.model(self.input)
 
     def get_loss(self):
         return self.loss_fn(self.output.squeeze(1), self.label)

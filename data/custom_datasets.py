@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 import numpy as np
 import os
 from pathlib import Path
+import random
 
 def numpy_to_pil_image(img):
     img = np.asarray(img)        
@@ -103,13 +104,19 @@ class ImageDataset(Dataset):
         self.transform = transform
 
     def __getitem__(self, idx):
-        img_path = self.image_files[idx]
-        img = Image.open(img_path).convert('RGB')
-        
-        if self.transform:
-            img = self.transform(img)
-            
-        label = self.label_to_int[img_path.parent.name]
+        try:
+            img_path = self.image_files[idx]
+            img = Image.open(img_path).convert('RGB')
+
+            if self.transform:
+                img = self.transform(img)
+
+            label = self.label_to_int[img_path.parent.name]
+        except Exception as e:
+            print(f"Exception occurred for index {idx}: {e}")
+            random_idx = random.choice(range(len(self.image_files)))
+            return self.__getitem__(random_idx)
+
         return img, label
 
     def __len__(self):

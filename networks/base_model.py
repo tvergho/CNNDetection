@@ -53,6 +53,7 @@ class BaseModel(nn.Module):
 
             for g in self.optimizer.param_groups:
                 g['lr'] = self.opt.lr
+            print("loaded optimizer")
 
     def eval(self):
         self.model.eval()

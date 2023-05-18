@@ -13,7 +13,7 @@ def validate(model, opt, data_loader, pre_model=None):
             for img, label in t:
                 in_tens = img.cuda()
                 if pre_model:
-                    in_tens = pre_model(in_tens)
+                    in_tens = pre_model(in_tens).float()
                 y_pred.extend(model(in_tens).sigmoid().flatten().tolist())
                 y_true.extend(label.flatten().tolist())
 

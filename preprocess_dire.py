@@ -147,4 +147,4 @@ def augmented_process_and_save_images(input_dir, output_dir, batch_size):
                 # Save the feature vector
                 # torch.save(feature_vector.cpu(), str(output_image_path))  # Move to CPU before saving
 
-augmented_process_and_save_images(Path("dataset/train"), Path("dataset/dire"), batch_size=8)
+augmented_process_and_save_images(Path("dataset/test/stylegan2"), Path("dataset/diretest/stylegan2"), batch_size=8)
