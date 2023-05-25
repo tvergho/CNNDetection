@@ -62,8 +62,8 @@ def get_data_loaders(opt):
                 ])
     local_dataset = ImageDataset(local_data_path, transform=transform)
     
-    # train_size = int(train_split_ratio * len(local_dataset))
-    # val_size = len(local_dataset) - train_size
+    train_size = int(train_split_ratio * len(local_dataset))
+    val_size = len(local_dataset) - train_size
     # local_train_dataset, local_val_dataset = random_split(local_dataset, [train_size, val_size])
 
     # huggingface_dataset_name = 'imagenet-1k'
@@ -73,8 +73,8 @@ def get_data_loaders(opt):
     
     # dataset = get_dataset(opt)
     train_dataset = local_dataset
-    val_dataset = ImageDataset("dataset/diretest", transform=transform)
-    # train_dataset, val_dataset = random_split(local_dataset, [train_size, val_size])
+    # val_dataset = ImageDataset("dataset/direadm3", transform=transform)
+    train_dataset, val_dataset = random_split(local_dataset, [train_size, val_size])
     
     data_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True)
     data_loader_val = DataLoader(val_dataset, batch_size=batch_size, num_workers=0, pin_memory=True)
