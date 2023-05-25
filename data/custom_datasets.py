@@ -6,7 +6,7 @@ from pathlib import Path
 import random
 
 def numpy_to_pil_image(img):
-    img = np.asarray(img)        
+    img = np.array(img)        
     if len(img.shape) == 2:
         img = np.repeat(img[:, :, np.newaxis], 3, axis=2)
     
@@ -112,6 +112,49 @@ class ImageDataset(Dataset):
                 img = self.transform(img)
 
             label = self.label_to_int[img_path.parent.name]
+        except Exception as e:
+            print(f"Exception occurred for index {idx}: {e}")
+            random_idx = random.choice(range(len(self.image_files)))
+            return self.__getitem__(random_idx)
+
+        return img, label
+
+    def __len__(self):
+        return len(self.image_files)
+
+class LimitedImageDataset(Dataset):
+    def __init__(self, root_dir, transform=None):
+        self.root_dir = Path(root_dir)
+        self.transform = transform
+
+        # Initialize empty list for image files and labels
+        self.image_files = []
+        self.labels = []
+
+        self.label_to_int = {
+            '0_real': 0,
+            '1_fake': 1
+        }
+
+        # Find minimum number of images across classes
+        min_images = min(len(list(self.root_dir.glob('**/0_real/*.png'))), 
+                         len(list(self.root_dir.glob('**/1_fake/*.png'))))
+
+        # Load equal number of images from each class
+        for label, int_label in self.label_to_int.items():
+            class_files = list(self.root_dir.glob(f'**/{label}/*.png'))[:min_images]
+            self.image_files += class_files
+            self.labels += [int_label]*len(class_files)
+
+    def __getitem__(self, idx):
+        try:
+            img_path = self.image_files[idx]
+            img = Image.open(img_path).convert('RGB')
+
+            if self.transform:
+                img = self.transform(img)
+
+            label = self.labels[idx]
         except Exception as e:
             print(f"Exception occurred for index {idx}: {e}")
             random_idx = random.choice(range(len(self.image_files)))

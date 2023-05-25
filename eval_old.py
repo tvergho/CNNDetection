@@ -8,7 +8,7 @@ from options.test_options import TestOptions
 from eval_config import *
 import torchvision.models as models
 import torch.nn as nn
-from data import create_dataloader, ImageDataset
+from data import create_dataloader, ImageDataset, LimitedImageDataset
 from networks.trainer_new import AvgPoolClassifier
 from util import prune_parallel_trained_model
 from diffusers import LDMPipeline, UNet2DModel, VQModel, DDIMScheduler
@@ -93,12 +93,12 @@ for v_id, val in enumerate(vals):
     model.cuda()
     model.eval()
 
-    local_dataset = ImageDataset(dataroot, transform=transforms.ToTensor())
+    local_dataset = LimitedImageDataset(dataroot, transform=transforms.ToTensor())
     data_loader = DataLoader(local_dataset, batch_size=opt.batch_size)
     # data_loader = create_dataloader(opt)
-    acc, ap, _, _, _, _ = validate(model, opt, data_loader, pre_model=pre_model)
+    acc, ap, r_acc, f_acc, _, _ = validate(model, opt, data_loader, pre_model=pre_model)
     rows.append([val, acc, ap])
-    print("({}) acc: {}; ap: {}".format(val, acc, ap))
+    print("({}) acc: {}; ap: {}; r_acc: {}; f_acc: {}".format(val, acc, ap, r_acc, f_acc))
 
 csv_name = results_dir + '/{}.csv'.format(model_name)
 with open(csv_name, 'w') as f:
