@@ -1,57 +1,21 @@
 import os
 import csv
 import torch
+import numpy as np
+from PIL import Image
+import torchvision.transforms.functional as TF
 
-from validate import validate
 from networks.resnet import resnet50
 from options.test_options import TestOptions
 from eval_config import *
-import torchvision.models as models
-import torch.nn as nn
-from data import create_dataloader, ImageDataset, LimitedImageDataset
-from networks.trainer_new import AvgPoolClassifier
-from util import prune_parallel_trained_model
-from diffusers import LDMPipeline, UNet2DModel, VQModel, DDIMScheduler
-from torch import Tensor, autocast, inference_mode
-import numpy as np
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
+from datasets import load_dataset
+from sklearn.metrics import average_precision_score, precision_recall_curve, accuracy_score
+from tqdm import tqdm
+from data import numpy_to_pil_image, CombinedLimitedDataset
 
-unet = UNet2DModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="unet", torch_dtype=torch.float16).to("cuda")
-vqvae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae", torch_dtype=torch.float16).to("cuda")
-scheduler = DDIMScheduler.from_pretrained("CompVis/ldm-celebahq-256", subfolder="scheduler")
-
-@torch.compile
-def get_image_dire(image):
-    with autocast("cuda"), torch.no_grad():
-        latents = vqvae.encode(image.half()).latents
-
-        scheduler.set_timesteps(20)
-        for i, e in enumerate(np.flip(scheduler.timesteps, 0)):
-            latents = scheduler.reverse_step(unet(latents, e).sample, e, latents).next_sample
-
-        latents_ = latents.clone()
-
-        for i, e in enumerate(scheduler.timesteps):
-            latents_ = scheduler.step(unet(latents_, e).sample, e, latents_).prev_sample
-
-        dire = calculate_dire(image.half(), latents_)
-        return dire
-
-@torch.compile
-def calculate_dire(image, latents_):
-    # Decode the latent vectors
-    decoded_image1 = image
-    decoded_image2 = vqvae.decode(latents_).sample
-
-    # Ensure the images are in the same range (0, 1)
-    decoded_image1 = (decoded_image1 / 2 + 0.5).clamp(0, 1)
-    decoded_image2 = (decoded_image2 / 2 + 0.5).clamp(0, 1)
-
-    # Compute the DIRE (the absolute difference between the images)
-    dire = torch.abs(decoded_image1 - decoded_image2)
-
-    return dire
+from util import prune_parallel_trained_model
 
 # Running tests
 opt = TestOptions().parse(print_options=False)
@@ -60,45 +24,46 @@ rows = [["{} model testing on...".format(model_name)],
         ['testset', 'accuracy', 'avg precision']]
 
 print("{} model testing on...".format(model_name))
-for v_id, val in enumerate(vals):
-    opt.dataroot = '{}/{}'.format(dataroot, val)
-    # opt.classes = os.listdir(opt.dataroot) if multiclass[v_id] else ['']
-    opt.no_resize = True    # testing without resizing by default
+model = resnet50(num_classes=1)
+state_dict = torch.load(model_path, map_location='cpu')
+new_state_dict = prune_parallel_trained_model(state_dict)
+ 
+model.load_state_dict(new_state_dict)
+model.cuda()
+model.eval()
 
-    # model = resnet50(num_classes=1)
-    if opt.vit:
-        model = ViTNetworkImage()
-        pre_model = None
-        # pretrained_model = models.efficientnet_v2_m(weights=models.EfficientNet_V2_M_Weights.DEFAULT)
-        # pre_model = FeatureExtractionEfficientNet(pretrained_model)
-        # pre_model.cuda()
-        # pre_model.eval()
-    elif opt.avg_pool_classifier:
-        model = models.efficientnet_v2_m(weights=models.EfficientNet_V2_M_Weights.DEFAULT)
-        model.classifier[0] = nn.Dropout(0.3, inplace=True)
-        model.classifier[1] = nn.Linear(model.classifier[1].in_features, 1)
-        pre_model = None
-    else:
-        # model = AvgPoolClassifier(1280, 1)
-        model = models.efficientnet_v2_s()
-        # model.classifier[0] = nn.Dropout(0.3, inplace=True)
-        model.classifier[1] = nn.Linear(model.classifier[1].in_features, 1)
-        # pre_model = get_image_dire
-        pre_model = None
-    
-    state_dict = torch.load(model_path, map_location='cpu')
-    new_state_dict = prune_parallel_trained_model(state_dict)
-    
-    model.load_state_dict(new_state_dict)
-    model.cuda()
-    model.eval()
+real_dataset_name = 'imagenet-1k'
+real_dataset = load_dataset(real_dataset_name, split='train', use_auth_token=True, streaming=True)
 
-    local_dataset = LimitedImageDataset(dataroot, transform=transforms.ToTensor())
-    data_loader = DataLoader(local_dataset, batch_size=opt.batch_size)
-    # data_loader = create_dataloader(opt)
-    acc, ap, r_acc, f_acc, _, _ = validate(model, opt, data_loader, pre_model=pre_model)
-    rows.append([val, acc, ap])
-    print("({}) acc: {}; ap: {}; r_acc: {}; f_acc: {}".format(val, acc, ap, r_acc, f_acc))
+fake_dataset_name = 'poloclub/diffusiondb'
+fake_dataset = load_dataset(fake_dataset_name, split='train', use_auth_token=True, streaming=True)
+
+transform = transforms.Compose([
+    transforms.Lambda(lambda img: TF.resize(img, opt.loadSize, interpolation=Image.BILINEAR)),
+    transforms.RandomCrop(opt.cropSize),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+dataset = CombinedLimitedDataset(fake_dataset, real_dataset, transform=transform, max_size=1000)
+data_loader = DataLoader(dataset, batch_size=opt.batch_size, num_workers=0, shuffle=True, pin_memory=True)
+
+rows = []
+with torch.no_grad():
+    y_true, y_pred = [], []
+    for img, label in tqdm(data_loader):
+        in_tens = img.cuda()
+        y_pred.extend(model(in_tens).sigmoid().flatten().tolist())
+        y_true.extend(label.flatten().tolist())
+        
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    # y_true = 1 - y_true
+
+    r_acc = accuracy_score(y_true[y_true==0], y_pred[y_true==0] > 0.5)
+    f_acc = accuracy_score(y_true[y_true==1], y_pred[y_true==1] > 0.5)
+    acc = accuracy_score(y_true, y_pred > 0.5)
+    ap = average_precision_score(y_true, y_pred)
+    print("({}) acc: {}; ap: {}; r_acc: {}; f_acc: {}".format(model_name, acc, ap, r_acc, f_acc))
+    rows.append([val, acc, ap, r_acc, f_acc])
 
 csv_name = results_dir + '/{}.csv'.format(model_name)
 with open(csv_name, 'w') as f:

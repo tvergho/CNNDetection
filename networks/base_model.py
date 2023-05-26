@@ -5,7 +5,9 @@ import torch.nn as nn
 from torch.nn import init
 from torch.optim import lr_scheduler
 from util import mkdir, prune_parallel_trained_model
+from accelerate import Accelerator
 
+accelerator = Accelerator()
 
 class BaseModel(nn.Module):
     def __init__(self, opt):
@@ -22,13 +24,15 @@ class BaseModel(nn.Module):
         save_path = os.path.join(self.save_dir, save_filename)
 
         # serialize model and optimizer to dict
+        model = accelerator.unwrap_model(self.model)
+
         state_dict = {
-            'model': self.model.state_dict(),
+            'model': model.state_dict(),
             'optimizer' : self.optimizer.state_dict(),
             'total_steps' : self.total_steps,
         }
 
-        torch.save(state_dict, save_path)
+        accelerator.save(state_dict, save_path)
 
     # load models from the disk
     def load_networks(self, epoch):
@@ -39,9 +43,9 @@ class BaseModel(nn.Module):
         # if you are using PyTorch newer than 0.4 (e.g., built from
         # GitHub source), you can remove str() on self.device
         state_dict = torch.load(load_path, map_location=self.device)
-        new_state_dict = prune_parallel_trained_model(state_dict)
+        # new_state_dict = prune_parallel_trained_model(state_dict)
 
-        self.model.load_state_dict(new_state_dict)
+        self.model.load_state_dict(state_dict['model'])
 
         if self.isTrain and not self.opt.new_optim:
             self.optimizer.load_state_dict(state_dict['optimizer'])

@@ -6,7 +6,8 @@ results_dir = './results/'
 mkdir(results_dir)
 
 # root to the testsets
-dataroot = './dataset/test/diretest/progan'
+dataroot = './dataset/diretestadm/stylegan/car'
+# dataroot = './dataset/direadmsd'
 
 # list of synthesis algorithms
 # vals = ['progan', 'stylegan', 'biggan', 'cyclegan', 'stargan', 'gaugan', 'crn', 'imle', 'seeingdark', 'san', 'deepfake', 'stylegan2', 'whichfaceisreal']
@@ -16,4 +17,5 @@ multiclass = [1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0]
 
 # model
 # model_path = 'weights/model_epoch_3_prelrincrease.pth'
-model_path = 'weights/dire_best.pth'
+# model_path = 'weights/model_epoch_best.pth'
+model_path = "checkpoints/dire3/model_epoch_latest.pth"

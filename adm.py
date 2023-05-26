@@ -49,7 +49,7 @@ class DiffusionModel:
             (self.batch_size, 3, self.image_size, self.image_size),
             clip_denoised=self.clip_denoised,
             model_kwargs={},
-            progress=True,
+            progress=False,
             noise=image,
         )
 
@@ -60,7 +60,7 @@ class DiffusionModel:
             (self.batch_size, 3, self.image_size, self.image_size),
             clip_denoised=self.clip_denoised,
             model_kwargs={},
-            progress=True,
+            progress=False,
             noise=noise_,
         )
 
@@ -78,8 +78,7 @@ class DiffusionModel:
         dire = th.abs(decoded_image1 - decoded_image2)
         dire = (dire * 255).clamp(0, 255).to(th.uint8)
         # dire = ((dire + 1) * 127.5).clamp(0, 255).to(th.uint8)
-        return dire, decoded_image1, decoded_image2
-
+        return dire
     
 transform = transforms.Compose([
             transforms.RandomResizedCrop(256),
