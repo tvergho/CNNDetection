@@ -84,13 +84,13 @@ def get_data_loaders(opt):
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()
-    opt.name = "dire3"
+    opt.name = "dirediffusiondb"
     opt.blur_prob = 0.5 
     opt.blur_sig = [0.0, 3.0] 
     opt.jpg_prob = 0.5 
     opt.jpg_method = ['cv2','pil']
     opt.jpg_qual = [30,100]
-    opt.dataroot = "dataset/direadmsd"
+    opt.dataroot = "dataset/direadmsd-diffusiondb"
     
     if accelerator.is_main_process:
         accelerator.init_trackers("cnndetector", config=vars(opt))

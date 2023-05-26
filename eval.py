@@ -86,9 +86,9 @@ for v_id, val in enumerate(vals):
     model.cuda()
     model.eval()
 
-    local_dataset = ImageDataset(dataroot, transform=transforms.ToTensor())
+    local_dataset = ImageDataset(opt.dataroot, transform=transforms.ToTensor())
     data_loader = DataLoader(local_dataset, batch_size=opt.batch_size)
-    print(dataroot, len(local_dataset))
+    print(opt.dataroot, len(local_dataset))
     # data_loader = create_dataloader(opt)
     acc, ap, r_acc, f_acc, _, _ = validate(model, opt, data_loader, pre_model=pre_model)
     rows.append([val, acc, ap])

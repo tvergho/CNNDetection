@@ -166,8 +166,8 @@ def process_real_dataset(gpu_id=0):
     # torch.cuda.set_device(gpu_id)
     real_dataset_name = "imagenet-1k"
     real_dataset = load_dataset(real_dataset_name, split="test", use_auth_token=True, streaming=True)
-    real_image_dataset = StreamingImageDataset(real_dataset, transform_func, Path("dataset/direadmadm"), label=1, is_huggingface=True)
-    augmented_process_and_save_images(real_image_dataset, batch_size, label=1, gpu_id=gpu_id)
+    real_image_dataset = StreamingImageDataset(real_dataset, transform_func, Path("dataset/direadmsd-diffusiondb"), label=0, is_huggingface=True)
+    augmented_process_and_save_images(real_image_dataset, batch_size, label=0, gpu_id=gpu_id)
     
 def process_diffusion_dataset(gpu_id=0):
     # torch.cuda.set_device(gpu_id)
@@ -235,7 +235,7 @@ def batch_process_and_save_images(input_dir, output_dir, batch_size):
 # Main function to manage multiprocessing
 def main():
     # batch_process_and_save_images(Path("dataset/test"), Path("dataset/diretestadm"), batch_size=batch_size)
-    process_diffusion_dataset()
+    process_real_dataset()
     # process_real_dataset(0)
     
 #     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
