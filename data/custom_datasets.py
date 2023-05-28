@@ -17,7 +17,7 @@ def numpy_to_pil_image(img):
       return Image.fromarray(img)
 
 class CombinedLimitedDataset(Dataset):
-    def __init__(self, dataset_1, dataset_2, transform=None, max_size=None, dataset_1_is_local=False):
+    def __init__(self, dataset_1, dataset_2, transform=None, max_size=None, dataset_1_is_local=False, dataset_2_is_local=False):
         self.dataset_1 = dataset_1
         self.dataset_2 = dataset_2
         self.transform = transform
@@ -25,6 +25,7 @@ class CombinedLimitedDataset(Dataset):
         self.iter2 = iter(self.dataset_2)
         self.max_size = max_size
         self.dataset_1_is_local = dataset_1_is_local
+        self.dataset_2_is_local = dataset_2_is_local
 
     def __len__(self):
         return self.max_size
@@ -42,13 +43,16 @@ class CombinedLimitedDataset(Dataset):
           else:
             img, label = self.dataset_1[idx]
         else:
-            try:
-              img = next(self.iter2)['image']
-              label = 0
-            except StopIteration:
-              self.iter2 = iter(self.dataset_2)
-              img = next(self.iter2)['image']
-              label = 0
+            if not self.dataset_2_is_local:
+                try:
+                    img = next(self.iter2)['image']
+                    label = 0
+                except StopIteration:
+                    self.iter2 = iter(self.dataset_2)
+                    img = next(self.iter2)['image']
+                    label = 0
+            else:
+                img, label = self.dataset_2[idx - int(self.max_size / 2)]
 
         img = numpy_to_pil_image(img)
 
@@ -69,10 +73,11 @@ class LimitedDataset(Dataset):
     def __getitem__(self, idx):
         return self.dataset[idx]
 
-class LocalDataset(Dataset):
-    def __init__(self, root_dir):
+class FolderDataset(Dataset):
+    def __init__(self, root_dir, label=1):
         self.root_dir = root_dir
         self.image_paths = self._get_image_paths()
+        self.label = label
 
     def _get_image_paths(self):
         image_paths = []
@@ -89,10 +94,10 @@ class LocalDataset(Dataset):
         img_path = self.image_paths[idx]
         img = Image.open(img_path).convert('RGB')
 
-        return img, 1  # "fake" class label
+        return img, self.label
 
 class ImageDataset(Dataset):
-    def __init__(self, root_dir, transform=None):
+    def __init__(self, root_dir, transform=None, max_size=None):
         self.root_dir = Path(root_dir)
         self.image_files = list(self.root_dir.glob('**/*.jpg')) + list(self.root_dir.glob('**/*.jpeg')) + list(self.root_dir.glob('**/*.png'))
         self.labels = [str(file.parent.name) for file in self.image_files]
@@ -102,6 +107,16 @@ class ImageDataset(Dataset):
             '1_fake': 1
         }
         self.transform = transform
+        self.max_size = max_size
+
+        # Shuffle image files and labels in unison
+        if self.max_size:
+            self.image_files, self.labels = self._shuffle_files_and_labels()
+
+    def _shuffle_files_and_labels(self):
+        zipped = list(zip(self.image_files, self.labels))
+        random.shuffle(zipped)
+        return zip(*zipped)
 
     def __getitem__(self, idx):
         try:
@@ -120,7 +135,10 @@ class ImageDataset(Dataset):
         return img, label
 
     def __len__(self):
-        return len(self.image_files)
+        if self.max_size:
+            return min(self.max_size, len(self.image_files))
+        else:
+            return len(self.image_files)
 
 class LimitedImageDataset(Dataset):
     def __init__(self, root_dir, transform=None):

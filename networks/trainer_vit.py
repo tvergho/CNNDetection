@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import timm
-from vit_pytorch import SimpleViT
 from einops import rearrange
 from util import prune_parallel_trained_model
 from networks.ef import FeatureExtractionEfficientNet
@@ -47,13 +46,13 @@ class ViTNetworkImage(nn.Module):
 
         # load pretrained ViT model
         self.vit_model = timm.create_model(pretrained_model_name, pretrained=True)
-        state_dict = torch.load("./weights/effv2.pth")
-        new_state_dict = prune_parallel_trained_model(state_dict)
+        # state_dict = torch.load("./weights/effv2.pth")
+        # new_state_dict = prune_parallel_trained_model(state_dict)
         
         ef_model = models.efficientnet_v2_m()
         ef_model.classifier[0] = nn.Dropout(0.3, inplace=True)
         ef_model.classifier[1] = nn.Linear(ef_model.classifier[1].in_features, 1)
-        ef_model.load_state_dict(new_state_dict)
+        # ef_model.load_state_dict(new_state_dict)
         self.ef_model = FeatureExtractionEfficientNet(ef_model)
 
         # remove the patch embedding layer

@@ -14,8 +14,12 @@ from datasets import load_dataset
 from sklearn.metrics import average_precision_score, precision_recall_curve, accuracy_score
 from tqdm import tqdm
 from data import numpy_to_pil_image, CombinedLimitedDataset
-
+import torchvision.models as models
+import torch.nn as nn
+from networks.trainer_vit import ViTNetworkImage
 from util import prune_parallel_trained_model
+
+threshold = 0.5
 
 # Running tests
 opt = TestOptions().parse(print_options=False)
@@ -24,12 +28,17 @@ rows = [["{} model testing on...".format(model_name)],
         ['testset', 'accuracy', 'avg precision']]
 
 print("{} model testing on...".format(model_name))
-model = resnet50(num_classes=1)
+# model = resnet50(num_classes=1)
+model = ViTNetworkImage()
+# model.classifier[1] = nn.Linear(model.classifier[1].in_features, 1)
+
 state_dict = torch.load(model_path, map_location='cpu')
 new_state_dict = prune_parallel_trained_model(state_dict)
  
 model.load_state_dict(new_state_dict)
-model.cuda()
+# model.cuda()
+mps_device = torch.device("mps")
+model = model.to(mps_device)
 model.eval()
 
 real_dataset_name = 'imagenet-1k'
@@ -51,19 +60,20 @@ rows = []
 with torch.no_grad():
     y_true, y_pred = [], []
     for img, label in tqdm(data_loader):
-        in_tens = img.cuda()
+        # in_tens = img.cuda()
+        in_tens = img.to(mps_device)
         y_pred.extend(model(in_tens).sigmoid().flatten().tolist())
         y_true.extend(label.flatten().tolist())
         
     y_true, y_pred = np.array(y_true), np.array(y_pred)
     # y_true = 1 - y_true
 
-    r_acc = accuracy_score(y_true[y_true==0], y_pred[y_true==0] > 0.5)
-    f_acc = accuracy_score(y_true[y_true==1], y_pred[y_true==1] > 0.5)
-    acc = accuracy_score(y_true, y_pred > 0.5)
+    r_acc = accuracy_score(y_true[y_true==0], y_pred[y_true==0] > threshold)
+    f_acc = accuracy_score(y_true[y_true==1], y_pred[y_true==1] > threshold)
+    acc = accuracy_score(y_true, y_pred > threshold)
     ap = average_precision_score(y_true, y_pred)
     print("({}) acc: {}; ap: {}; r_acc: {}; f_acc: {}".format(model_name, acc, ap, r_acc, f_acc))
-    rows.append([val, acc, ap, r_acc, f_acc])
+    rows.append([acc, ap, r_acc, f_acc])
 
 csv_name = results_dir + '/{}.csv'.format(model_name)
 with open(csv_name, 'w') as f:

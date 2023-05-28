@@ -60,7 +60,7 @@ class Trainer(BaseModel):
         # for param in self.vqvae.parameters():
         #     param.requires_grad = False
     
-    @torch.compile
+    # @torch.compile
     def get_image_dire(self, image):
         with autocast("cuda"):
             latents = self.vqvae.encode(image).latents
@@ -77,7 +77,7 @@ class Trainer(BaseModel):
             dire = self.calculate_dire(image, latents_)
             return dire
     
-    @torch.compile
+    # @torch.compile
     def calculate_dire(self, image, latents_):
         # Decode the latent vectors
         decoded_image1 = image

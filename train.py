@@ -6,7 +6,6 @@ import torchvision.transforms as transforms
 from torchvision.datasets import ImageFolder
 from torch.utils.data import Dataset, ConcatDataset, Subset, DataLoader, IterableDataset, random_split
 from PIL import Image
-from tensorboardX import SummaryWriter
 import random
 from datasets import load_dataset
 from options.train_options import TrainOptions
@@ -27,7 +26,7 @@ from scipy.ndimage.filters import gaussian_filter
 from huggingface_hub import login
 
 from sklearn.metrics import average_precision_score, precision_recall_curve, accuracy_score
-from data import create_dataloader, data_augment, custom_resize, LocalDataset, LimitedDataset, CombinedLimitedDataset, get_dataset
+from data import create_dataloader, data_augment, custom_resize, FolderDataset, LimitedDataset, CombinedLimitedDataset, get_dataset
 from earlystop import EarlyStopping
 from networks.trainer import Trainer
 from accelerate import Accelerator
@@ -38,7 +37,7 @@ from util import flush, print_memory_usage
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 accelerator = Accelerator(log_with="wandb")
 
-train_split_ratio = 0.995
+train_split_ratio = 0.97
 
 def get_data_loaders(opt):
     local_data_path = opt.dataroot
@@ -55,24 +54,33 @@ def get_data_loaders(opt):
                     transforms.ToTensor(),
                     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
                 ])
-    local_dataset = LocalDataset(local_data_path)
-    
+    local_dataset = FolderDataset(local_data_path, label=1)
     train_size = int(train_split_ratio * len(local_dataset))
     val_size = len(local_dataset) - train_size
-    local_train_dataset, local_val_dataset = random_split(local_dataset, [train_size, val_size])
+    fake_train_dataset, fake_val_dataset = random_split(local_dataset, [train_size, val_size])
+    print(f"Fake train dataset size: {len(fake_train_dataset)}")
+    print(f"Fake val dataset size: {len(fake_val_dataset)}")
+
+    real_dataset = FolderDataset("dataset/artifact/imagenet/imagenet/train", label=0)
+    train_size = int(train_split_ratio * len(real_dataset))
+    val_size = len(real_dataset) - train_size
+    real_train_dataset, real_val_dataset = random_split(real_dataset, [train_size, val_size])
+    print(f"Real train dataset size: {len(real_train_dataset)}")
+    print(f"Real val dataset size: {len(real_val_dataset)}")
+
+    train_size = min(len(fake_train_dataset), len(real_train_dataset)) - 1
+    val_size = min(len(fake_val_dataset), len(real_val_dataset)) - 1
 
     # Load Huggingface dataset
     # huggingface_dataset_name = 'imagenet-1k'
     # huggingface_dataset = load_dataset(huggingface_dataset_name, split='test', use_auth_token=True, streaming=True)
-    
-    # Create DataLoader
-    
-    dataset = get_dataset(opt)
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    
+        
+    # dataset = get_dataset(opt)
+    # train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
     # val_dataset = load_dataset(huggingface_dataset_name, split='validation', use_auth_token=True, streaming=True)
-    # limited_dataset = CombinedLimitedDataset(local_val_dataset, val_dataset, max_size=1000, transform=transform, dataset_1_is_local=True)
-    # combined_dataset = CombinedLimitedDataset(local_dataset, huggingface_dataset, max_size=200000, transform=transform, dataset_1_is_local=True)
+
+    val_dataset = CombinedLimitedDataset(fake_val_dataset, real_val_dataset, max_size=val_size*2, transform=transform, dataset_1_is_local=True, dataset_2_is_local=True)
+    train_dataset = CombinedLimitedDataset(fake_train_dataset, real_train_dataset, max_size=train_size*2, transform=transform, dataset_1_is_local=True, dataset_2_is_local=True)
     
     data_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True)
     data_loader_val = DataLoader(val_dataset, batch_size=batch_size, num_workers=0, pin_memory=True)
@@ -82,12 +90,13 @@ def get_data_loaders(opt):
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()
-    opt.name = "diffusion_blur_jpg_prob0.5"
+    opt.name = "biggan"
     opt.blur_prob = 0.5 
     opt.blur_sig = [0.0, 3.0] 
     opt.jpg_prob = 0.5 
     opt.jpg_method = ['cv2','pil']
     opt.jpg_qual = [30,100]
+    opt.dataroot = "dataset/artifact/big_gan"
     
     if accelerator.is_main_process:
         accelerator.init_trackers("cnndetector", config=vars(opt))
@@ -100,6 +109,8 @@ if __name__ == '__main__':
     data_loader, data_loader_val = accelerator.prepare(
         data_loader, data_loader_val
     )
+
+    acc = None
 
     for epoch in range(opt.niter):
         epoch_start_time = time.time()
@@ -138,14 +149,15 @@ if __name__ == '__main__':
                   (epoch, model.total_steps))
             model.save_networks('latest')
             model.save_networks(epoch)
-            
-        early_stopping(acc, model)
-        if early_stopping.early_stop:
-            cont_train = model.adjust_learning_rate()
-            if cont_train:
-                print("Learning rate dropped by 10, continue training...")
-                early_stopping = EarlyStopping(patience=opt.earlystop_epoch, delta=-0.002, verbose=True)
-            else:
-                print("Early stopping.")
-                break
+
+        if acc:    
+            early_stopping(acc, model)
+            if early_stopping.early_stop:
+                cont_train = model.adjust_learning_rate()
+                if cont_train:
+                    print("Learning rate dropped by 10, continue training...")
+                    early_stopping = EarlyStopping(patience=opt.earlystop_epoch, delta=-0.002, verbose=True)
+                else:
+                    print("Early stopping.")
+                    break
         model.train()
